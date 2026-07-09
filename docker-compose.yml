@@ -9,6 +9,10 @@ services:
     container_name: jenkins
     restart: unless-stopped
 
+    # Cho phép autoheal tự restart khi healthcheck = unhealthy (treo/deadlock)
+    labels:
+      autoheal: "true"
+
     # Jenkins cần thời gian shutdown gọn (drain build) trước khi bị kill
     stop_grace_period: 90s
     # /dev/shm lớn hơn cho browser test / trình biên dịch nặng
@@ -33,6 +37,7 @@ services:
         -XX:+UseStringDeduplication
         -XX:MaxRAMPercentage=70.0
         -XX:+HeapDumpOnOutOfMemoryError
+        -XX:+ExitOnOutOfMemoryError
         -Dhudson.model.LoadStatistics.clock=2000
         -Djenkins.model.Jenkins.slaveAgentPort=50000
         -Djenkins.model.Jenkins.slaveAgentPortEnforce=true
@@ -76,6 +81,27 @@ services:
 
     networks:
       - jenkins-net
+
+  # ==========================================================================
+  # Autoheal: tự restart container nào có label autoheal=true khi UNHEALTHY.
+  # Lấp khoảng trống mà restart policy của Docker không xử lý (treo/deadlock).
+  # ==========================================================================
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: jenkins-autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: "15"       # quét mỗi 15s
+      AUTOHEAL_START_PERIOD: "180"  # bỏ qua 180s đầu (Jenkins đang khởi động)
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: "90"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
 
 # Network tạo sẵn bằng tay trên host: `docker network create jenkins-net`
 # (Makefile target `network` sẽ tự tạo nếu chưa có)
