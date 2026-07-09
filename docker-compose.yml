@@ -38,6 +38,10 @@ services:
       JENKINS_ADMIN_PASSWORD: "${JENKINS_ADMIN_PASSWORD}"
       JENKINS_ADMIN_EMAIL: "${JENKINS_ADMIN_EMAIL}"
       CASC_JENKINS_CONFIG: "/var/jenkins_home/casc/jenkins.yaml"
+      # GitLab credentials (giá trị thật nằm trong .env, không push)
+      GITLAB_URL: "${GITLAB_URL:-https://gitlab.com}"
+      GITLAB_USER: "${GITLAB_USER}"
+      GITLAB_TOKEN: "${GITLAB_TOKEN}"
       # --- JVM tuning: G1GC + để JVM tự dùng % RAM của container ---
       JAVA_OPTS: >-
         -Djenkins.install.runSetupWizard=false
