@@ -3,9 +3,16 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        NODE_MAJOR: "22"
     image: jenkins-devops:latest
     container_name: jenkins
     restart: unless-stopped
+
+    # Jenkins cần thời gian shutdown gọn (drain build) trước khi bị kill
+    stop_grace_period: 90s
+    # /dev/shm lớn hơn cho browser test / trình biên dịch nặng
+    shm_size: "512m"
 
     ports:
       - "${JENKINS_HTTP_PORT:-8080}:8080"     # Web UI
@@ -18,32 +25,61 @@ services:
       JENKINS_ADMIN_PASSWORD: "${JENKINS_ADMIN_PASSWORD}"
       JENKINS_ADMIN_EMAIL: "${JENKINS_ADMIN_EMAIL}"
       CASC_JENKINS_CONFIG: "/var/jenkins_home/casc/jenkins.yaml"
+      # --- JVM tuning: G1GC + để JVM tự dùng % RAM của container ---
       JAVA_OPTS: >-
         -Djenkins.install.runSetupWizard=false
-        -Dhudson.model.DirectoryBrowserSupport.CSP=
+        -Djava.awt.headless=true
+        -XX:+UseG1GC
+        -XX:+UseStringDeduplication
+        -XX:MaxRAMPercentage=70.0
+        -XX:+HeapDumpOnOutOfMemoryError
+        -Dhudson.model.LoadStatistics.clock=2000
+        -Djenkins.model.Jenkins.slaveAgentPort=50000
+        -Djenkins.model.Jenkins.slaveAgentPortEnforce=true
 
     volumes:
-      - jenkins_home:/var/jenkins_home
+      # Dữ liệu Jenkins nằm trực tiếp trên host (dễ backup, khớp hạ tầng VM)
+      - ${JENKINS_HOME_HOST:-/data/jenkins_home}:/var/jenkins_home
       # Nạp cấu hình JCasC (read-only)
       - ./casc/jenkins.yaml:/var/jenkins_home/casc/jenkins.yaml:ro
-      # Cho phép Jenkins điều khiển Docker của host (Docker-out-of-Docker)
+      # Điều khiển Docker của host (Docker-out-of-Docker)
       - /var/run/docker.sock:/var/run/docker.sock
+      # Đồng bộ giờ với host
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+
+    # Cho user jenkins (uid 1000) quyền dùng /var/run/docker.sock.
+    # Lấy GID: `getent group docker | cut -d: -f3` rồi đặt vào .env: DOCKER_GID=...
+    group_add:
+      - "${DOCKER_GID:-999}"
 
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:8080/login"]
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 90s
+      start_period: 120s
+
+    # Giới hạn tài nguyên (docker compose v2 honor deploy.resources.limits)
+    deploy:
+      resources:
+        limits:
+          memory: "${JENKINS_MEM_LIMIT:-4g}"
+        reservations:
+          memory: "1g"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
     networks:
       - jenkins-net
 
-volumes:
-  jenkins_home:
-    name: jenkins_home
-
+# Network tạo sẵn bằng tay trên host: `docker network create jenkins-net`
+# (Makefile target `network` sẽ tự tạo nếu chưa có)
 networks:
   jenkins-net:
     name: jenkins-net
-    driver: bridge
+    external: true

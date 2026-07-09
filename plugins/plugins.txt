@@ -1,40 +1,44 @@
 # ============================================================================
-# Jenkins Plugins - danh sách cài đặt sẵn khi build image
-# Không ghim version -> jenkins-plugin-cli tự lấy bản mới nhất tương thích LTS.
+# Jenkins Plugins - cài sẵn khi build image (jenkins-plugin-cli).
+# Không ghim version -> luôn lấy bản mới nhất tương thích LTS (kèm vá bảo mật).
+# Đã hợp nhất với danh sách đang chạy thật trên VM.
 # ============================================================================
 
 # --- Core / Configuration as Code ---
 configuration-as-code
 job-dsl
 antisamy-markup-formatter
+cloudbees-folder
+authorize-project
 
 # --- Pipeline ---
 workflow-aggregator
 pipeline-stage-view
+pipeline-graph-view
 pipeline-utility-steps
 pipeline-github-lib
-pipeline-graph-view
 
 # --- Blue Ocean UI ---
 blueocean
 
-# --- Source Control ---
+# --- Source Control: GitLab ---
+gitlab-plugin
+gitlab-branch-source
+
+# --- Source Control: Git / GitHub ---
 git
 git-client
 github
 github-branch-source
-gitlab-plugin
-ssh-agent
-ssh-slaves
 
 # --- Credentials & Security ---
 credentials
 credentials-binding
 plain-credentials
 ssh-credentials
+ssh-agent
 matrix-auth
 role-strategy
-authorize-project
 hashicorp-vault-plugin
 
 # --- Docker ---
@@ -49,21 +53,29 @@ kubernetes-cli
 maven-plugin
 nodejs
 sonar
+warnings-ng
+jacoco
+junit
 config-file-provider
+
+# --- Triggers & Webhooks ---
+generic-webhook-trigger
+parameterized-trigger
+http_request
 
 # --- Notifications ---
 email-ext
 mailer
 slack
 
-# --- Utilities ---
+# --- Artifacts & Utilities ---
+copyartifact
 timestamper
-ws-cleanup
-build-timeout
 ansicolor
-build-user-vars-plugin
+ws-cleanup
 rebuild
-parameterized-trigger
+build-timeout
+build-user-vars-plugin
 throttle-concurrents
 resource-disposer
 dark-theme

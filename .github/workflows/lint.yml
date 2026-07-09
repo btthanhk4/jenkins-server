@@ -1,0 +1,29 @@
+name: lint
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  hadolint:
+    name: Lint Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/Dockerfile
+          # DL3008: bỏ qua yêu cầu ghim version cho apt (ta chủ động lấy bản mới)
+          ignore: DL3008,DL3013,DL3059,DL4006
+
+  shellcheck:
+    name: Lint shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: ./scripts

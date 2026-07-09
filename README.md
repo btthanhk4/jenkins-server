@@ -2,10 +2,10 @@
 
 Hạ tầng Jenkins **All-in-One** đóng gói bằng Docker, cấu hình bằng
 [Configuration as Code (JCasC)](https://github.com/jenkinsci/configuration-as-code-plugin),
-sẵn sàng deploy các dự án của công ty.
+đã **hardening bảo mật** và **tune JVM**, sẵn sàng deploy các dự án của công ty.
 
-Image đã tích hợp sẵn: **Docker CLI, kubectl, Helm, Maven, Node 22, Terraform,
-Vault, SonarScanner, Trivy, AWS CLI, Ansible**.
+Image tích hợp sẵn: **Docker CLI + Buildx + Compose, kubectl, Helm, yq, Maven,
+Node 22 + pnpm, Terraform, Vault, SonarScanner, Trivy, AWS CLI v2, Ansible**.
 
 ---
 
@@ -13,22 +13,19 @@ Vault, SonarScanner, Trivy, AWS CLI, Ansible**.
 
 ```
 jenkins-server/
-├── docker/
-│   └── Dockerfile           # Image Jenkins + toàn bộ DevOps tools
-├── plugins/
-│   └── plugins.txt          # Danh sách plugin cài sẵn khi build
-├── casc/
-│   └── jenkins.yaml         # Cấu hình Jenkins (JCasC) - version control được
+├── .github/workflows/lint.yml   # CI: hadolint + shellcheck
+├── docker/Dockerfile            # Image Jenkins + toàn bộ DevOps tools
+├── plugins/plugins.txt          # Danh sách plugin cài sẵn khi build
+├── casc/jenkins.yaml            # Cấu hình + hardening Jenkins (JCasC)
 ├── scripts/
-│   ├── backup.sh            # Sao lưu JENKINS_HOME
-│   └── restore.sh           # Khôi phục từ backup
-├── examples/
-│   └── Jenkinsfile.example  # Pipeline mẫu cho dự án
-├── docker-compose.yml       # Định nghĩa service
-├── .env.example             # Mẫu biến môi trường (copy -> .env)
-├── .gitignore               # Chặn commit secret
-├── .dockerignore
-├── Makefile                 # Lệnh tắt: make up / down / logs ...
+│   ├── backup.sh                # Sao lưu JENKINS_HOME (bind mount)
+│   └── restore.sh               # Khôi phục từ backup
+├── examples/Jenkinsfile.example # Pipeline mẫu cho dự án
+├── docker-compose.yml           # Service + resource limits + JVM tuning
+├── .env.example                 # Mẫu biến môi trường (copy -> .env)
+├── .gitignore / .dockerignore / .gitattributes
+├── Makefile                     # Lệnh tắt: make bootstrap/up/logs...
+├── LICENSE
 └── README.md
 ```
 
@@ -36,92 +33,99 @@ jenkins-server/
 
 ## 🚀 Cài đặt trên VM
 
+> Đã kiểm chứng trên: Proxmox VE → Ubuntu Server 24.04 LTS, IP `192.168.10.185`.
+
 ### 1. Yêu cầu
+- Docker Engine + Docker Compose plugin đã cài trên host.
+- User hiện tại thuộc group `docker`.
 
-- VM Debian/Ubuntu, đã cài **Docker Engine** + **Docker Compose plugin**
-- User đang dùng nằm trong group `docker`
-
+### 2. Lấy source & cấu hình
 ```bash
-# Cài Docker (nếu chưa có)
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-### 2. Lấy source về VM
-
-```bash
-git clone <URL-repo-của-bạn> jenkins-server
+git clone https://github.com/btthanhk4/jenkins-server.git
 cd jenkins-server
-```
-
-### 3. Tạo file cấu hình
-
-```bash
 cp .env.example .env
-nano .env        # đổi mật khẩu admin, JENKINS_URL, email...
+nano .env        # đổi mật khẩu admin, JENKINS_URL, DOCKER_GID...
 ```
 
-> ⚠️ **Bắt buộc** đổi `JENKINS_ADMIN_PASSWORD` trước khi chạy production.
-
-### 4. Build & khởi động
-
+Lấy đúng **GID của group docker** để Jenkins gọi được `docker.sock`:
 ```bash
-make build       # hoặc: docker compose build --no-cache
-make up          # hoặc: docker compose up -d
+getent group docker | cut -d: -f3     # dán số này vào DOCKER_GID trong .env
+```
+
+### 3. Khởi tạo thư mục dữ liệu (1 lần)
+```bash
+make bootstrap   # tạo /data/jenkins_home + chown 1000:1000
+```
+
+### 4. Build & chạy
+```bash
+make build       # docker compose build --no-cache
+make up          # tự tạo network jenkins-net rồi up -d
 make logs        # theo dõi khởi động
 ```
 
-Truy cập: **http://<IP-VM>:8080** — đăng nhập bằng tài khoản trong `.env`.
+Truy cập: **http://192.168.10.185:8080** — đăng nhập bằng tài khoản trong `.env`.
 
 ---
 
 ## 🔧 Lệnh thường dùng (Makefile)
 
-| Lệnh            | Chức năng                          |
-|-----------------|------------------------------------|
-| `make up`       | Khởi động Jenkins                  |
-| `make down`     | Dừng & xoá container               |
-| `make restart`  | Khởi động lại                      |
-| `make logs`     | Xem log realtime                   |
-| `make shell`    | Vào bash trong container           |
-| `make backup`   | Sao lưu dữ liệu                    |
-| `make restore FILE=backups/xxx.tar.gz` | Khôi phục       |
-| `make clean`    | Dừng + **xoá volume** (nguy hiểm)  |
+| Lệnh              | Chức năng                                   |
+|-------------------|---------------------------------------------|
+| `make bootstrap`  | Tạo thư mục dữ liệu + phân quyền (1 lần)     |
+| `make up`         | Tạo network + khởi động Jenkins             |
+| `make down`       | Dừng & xoá container                        |
+| `make restart`    | Khởi động lại (nạp lại JCasC)               |
+| `make logs`       | Xem log realtime                            |
+| `make shell`      | Vào bash trong container                    |
+| `make backup`     | Sao lưu dữ liệu                             |
+| `make restore FILE=backups/xxx.tar.gz` | Khôi phục              |
+| `make clean`      | Dừng container (KHÔNG xoá dữ liệu host)      |
+
+---
+
+## ⚡ Tối ưu đã áp dụng
+
+**Hiệu năng (JVM):** G1GC, String Deduplication, `MaxRAMPercentage=70%` (JVM tự
+co giãn theo RAM container), heap dump khi OOM. Giới hạn RAM qua `JENKINS_MEM_LIMIT`.
+
+**Bảo mật (hardening):**
+- `remotingSecurity` bật, chỉ cho phép agent protocol hiện đại (`JNLP4`).
+- Tắt SSHD tích hợp, CSRF crumb bật, Job DSL chạy sandbox.
+- Không disable CSP, tắt gửi usage statistics ra ngoài.
+- Secret nạp qua ENV/Credentials, không hardcode trong git.
+
+**Vận hành:** healthcheck, `stop_grace_period` (drain build), log rotation,
+`shm_size` lớn cho test, network external ổn định, bind mount dễ backup.
 
 ---
 
 ## 🔐 Bảo mật
 
-- **Không bao giờ** commit file `.env` hay secret (đã chặn trong `.gitignore`).
-- Secret/credentials nên nạp qua **Jenkins Credentials** hoặc **Vault**, không hardcode vào `casc/jenkins.yaml`.
-- Nên đặt **reverse proxy (Nginx) + HTTPS** trước Jenkins khi chạy production.
-- Container gắn `docker.sock` của host ⇒ Jenkins có quyền tương đương root trên host. Chỉ cấp quyền cho người đáng tin.
+- **Không bao giờ** commit `.env` hay secret (đã chặn trong `.gitignore`).
+- Container gắn `docker.sock` ⇒ Jenkins có quyền tương đương root trên host. Chỉ cấp quyền cho người đáng tin.
+- Production nên đặt **Nginx reverse proxy + HTTPS (Let's Encrypt)** trước Jenkins.
 
 ---
 
 ## 💾 Sao lưu & khôi phục
-
 ```bash
-make backup                                   # tạo backups/jenkins-home-*.tar.gz
+make backup                                        # -> backups/jenkins-home-*.tar.gz
 make restore FILE=backups/jenkins-home-XXXX.tar.gz
 ```
-
-Nên thiết lập cron backup định kỳ và đẩy file backup ra nơi lưu trữ ngoài (S3...).
+Nên cron backup định kỳ và đẩy file ra lưu trữ ngoài (S3, GitLab, NAS...).
 
 ---
 
 ## 📝 Deploy dự án
-
-1. Copy `examples/Jenkinsfile.example` vào repo dự án, đổi tên thành `Jenkinsfile`.
-2. Trên Jenkins: **New Item → Pipeline** (hoặc Multibranch Pipeline) → trỏ tới repo.
+1. Copy `examples/Jenkinsfile.example` vào repo dự án → đổi tên `Jenkinsfile`.
+2. Jenkins: **New Item → (Multibranch) Pipeline** → trỏ tới repo.
 3. Thêm credentials (GitLab/registry) trong **Manage Jenkins → Credentials**.
-4. Chạy build.
+4. Cấu hình webhook GitLab → build tự động.
 
 ---
 
 ## 🛠 Thêm/bớt công cụ hoặc plugin
-
 - **Plugin:** sửa `plugins/plugins.txt` → `make build` → `make up`.
-- **Công cụ CLI:** thêm block `RUN` tương ứng trong `docker/Dockerfile` → rebuild.
-- **Cấu hình Jenkins:** sửa `casc/jenkins.yaml` → `make restart` (JCasC nạp lại).
+- **Công cụ CLI:** thêm block `RUN` trong `docker/Dockerfile` → rebuild.
+- **Cấu hình Jenkins:** sửa `casc/jenkins.yaml` → `make restart`.

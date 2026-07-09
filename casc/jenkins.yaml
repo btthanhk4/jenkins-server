@@ -1,17 +1,18 @@
 # ============================================================================
 # Jenkins Configuration as Code (JCasC)
-# Tài liệu: https://github.com/jenkinsci/configuration-as-code-plugin
+# Docs: https://github.com/jenkinsci/configuration-as-code-plugin
 # Mọi ${VAR} được đọc từ biến môi trường (khai báo trong .env / docker-compose).
 # ============================================================================
 
 jenkins:
-  systemMessage: "Jenkins - Managed by Configuration as Code. KHÔNG chỉnh tay trên UI."
+  systemMessage: "Jenkins DevOps — Managed by Configuration as Code. KHÔNG chỉnh tay trên UI."
   numExecutors: 2
   mode: NORMAL
   scmCheckoutRetryCount: 3
   labelString: "built-in linux docker"
+  quietPeriod: 3
 
-  # --- Bảo mật: đăng nhập bằng user/pass nội bộ ---
+  # --- Bảo mật đăng nhập nội bộ ---
   securityRealm:
     local:
       allowsSignup: false
@@ -26,26 +27,56 @@ jenkins:
         - "Overall/Administer:${JENKINS_ADMIN_ID}"
         - "Overall/Read:authenticated"
 
-  # --- Không cho build chạy trên node controller (bảo mật) ---
-  # Đặt numExecutors ở trên = 2 nếu muốn dùng controller làm agent (all-in-one).
-  # Với môi trường lớn nên = 0 và dùng agent riêng.
+  # --- Hardening: bảo mật kênh controller <-> agent ---
+  remotingSecurity:
+    enabled: true
 
+  # Chỉ cho phép giao thức agent hiện đại (tắt các protocol cũ, dễ tấn công)
+  agentProtocols:
+    - "JNLP4-connect"
+    - "Ping"
+
+  # --- CSRF crumb (bật sẵn; excludeClientIP=true khi chạy sau reverse proxy) ---
+  crumbIssuer:
+    standard:
+      excludeClientIPFromCrumb: true
+
+# ============================================================================
+# Bảo mật nâng cao
+# ============================================================================
 security:
+  # Tắt SSHD server tích hợp (giảm bề mặt tấn công; -1 = disabled)
+  sSHD:
+    port: -1
+  # Ép Job DSL/script chạy trong sandbox
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: true
+  # Ai trigger build thì chạy dưới quyền người đó
   queueItemAuthenticator:
     authenticators:
       - global:
           strategy: triggeringUsersAuthorizationStrategy
 
+# ============================================================================
+# Cấu hình chung
+# ============================================================================
 unclassified:
   location:
     url: "${JENKINS_URL}"
     adminAddress: "${JENKINS_ADMIN_EMAIL}"
 
-  # --- Slack (điền token qua credentials nếu dùng) ---
+  # Tắt gửi thống kê usage ra ngoài
+  usageStatistics:
+    enabled: false
+
+  # --- Slack (bỏ comment + tạo credential 'slack-token' khi dùng) ---
   # slackNotifier:
   #   teamDomain: "your-team"
   #   tokenCredentialId: "slack-token"
 
+# ============================================================================
+# Công cụ (đường dẫn khớp với image trong docker/Dockerfile)
+# ============================================================================
 tool:
   git:
     installations:
@@ -55,13 +86,10 @@ tool:
     installations:
       - name: "Maven-3.9"
         home: "/opt/apache-maven-3.9.11"
-  nodejs:
-    installations:
-      - name: "Node-22"
-        home: "/usr/bin"
+  # Node đã có sẵn global trên PATH của image -> gọi trực tiếp trong pipeline.
 
 # ============================================================================
-# Credentials mẫu - đọc từ biến môi trường, KHÔNG hardcode secret vào git.
+# Credentials mẫu - đọc từ ENV, KHÔNG hardcode secret vào git.
 # Bỏ comment và điền biến tương ứng trong .env khi cần.
 # ============================================================================
 # credentials:
