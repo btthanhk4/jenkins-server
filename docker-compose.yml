@@ -24,8 +24,6 @@ services:
         soft: 65536
         hard: 65536
       nproc: 32768
-    # Trần số process trong container (chặn fork-bomb do build lỗi)
-    pids_limit: 8192
 
     ports:
       - "${JENKINS_HTTP_PORT:-8080}:8080"     # Web UI
@@ -86,6 +84,7 @@ services:
         limits:
           memory: "${JENKINS_MEM_LIMIT:-10g}"
           cpus: "${JENKINS_CPU_LIMIT:-10}"
+          pids: 8192          # trần số process (chặn fork-bomb do build lỗi)
         reservations:
           memory: "2g"
 
