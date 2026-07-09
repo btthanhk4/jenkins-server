@@ -87,7 +87,7 @@ tool:
   maven:
     installations:
       - name: "Maven-3.9"
-        home: "/opt/apache-maven-3.9.11"
+        home: "/opt/maven"
   # Node đã có sẵn global trên PATH của image -> gọi trực tiếp trong pipeline.
 
 # ============================================================================

@@ -79,22 +79,22 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ###############################################################################
-# Maven (multi-mirror: CDN -> downloads -> archive)
+# Maven — tự lấy version hiện có trên Apache CDN (dlcdn reachable);
+# fallback sang apt nếu CDN lỗi. Symlink ổn định /opt/maven cho JCasC.
 ###############################################################################
-ARG MAVEN_VERSION=3.9.11
 RUN set -eux; \
-    for base in \
-        "https://dlcdn.apache.org/maven/maven-3" \
-        "https://downloads.apache.org/maven/maven-3" \
-        "https://archive.apache.org/dist/maven/maven-3"; do \
-      if curl -fsSL "${base}/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o /tmp/maven.tar.gz; then \
-        echo "Downloaded Maven from ${base}"; break; \
-      fi; \
-    done; \
-    test -s /tmp/maven.tar.gz; \
-    tar -xz -f /tmp/maven.tar.gz -C /opt; \
-    ln -s /opt/apache-maven-${MAVEN_VERSION}/bin/mvn /usr/local/bin/mvn; \
-    rm -f /tmp/maven.tar.gz; \
+    base="https://dlcdn.apache.org/maven/maven-3"; \
+    ver="$(curl -fsSL --connect-timeout 30 "${base}/" | grep -oE '3\.[0-9]+\.[0-9]+/' | tr -d '/' | sort -V | tail -1 || true)"; \
+    if [ -n "${ver}" ] && curl -fsSL --connect-timeout 30 -o /tmp/maven.tar.gz "${base}/${ver}/binaries/apache-maven-${ver}-bin.tar.gz"; then \
+        echo "Installed Maven ${ver} from CDN"; \
+        tar -xzf /tmp/maven.tar.gz -C /opt && rm -f /tmp/maven.tar.gz && \
+        ln -s "/opt/apache-maven-${ver}" /opt/maven; \
+    else \
+        echo "CDN unavailable -> install Maven via apt"; \
+        apt-get update && apt-get install -y --no-install-recommends maven && \
+        rm -rf /var/lib/apt/lists/* && ln -s /usr/share/maven /opt/maven; \
+    fi; \
+    ln -sf /opt/maven/bin/mvn /usr/local/bin/mvn; \
     mvn -version
 
 ###############################################################################
@@ -102,7 +102,7 @@ RUN set -eux; \
 ###############################################################################
 ARG TERRAFORM_VERSION=1.13.0
 RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${ARCH}.zip" \
+    curl -fsSL --connect-timeout 30 "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${ARCH}.zip" \
       -o /tmp/terraform.zip && \
     unzip -o /tmp/terraform.zip -d /usr/local/bin && rm -f /tmp/terraform.zip && \
     terraform version
@@ -112,7 +112,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 ###############################################################################
 ARG VAULT_VERSION=1.21.0
 RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_${ARCH}.zip" \
+    curl -fsSL --connect-timeout 30 "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_${ARCH}.zip" \
       -o /tmp/vault.zip && \
     unzip -o /tmp/vault.zip -d /usr/local/bin && rm -f /tmp/vault.zip && \
     vault version
@@ -121,7 +121,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Sonar Scanner CLI
 ###############################################################################
 ARG SONAR_VERSION=7.2.0.5079
-RUN curl -fsSL "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-${SONAR_VERSION}-linux-x64.zip" \
+RUN curl -fsSL --connect-timeout 30 "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-${SONAR_VERSION}-linux-x64.zip" \
       -o /tmp/sonar.zip && \
     unzip -o /tmp/sonar.zip -d /opt && rm -f /tmp/sonar.zip && \
     ln -s /opt/sonar-scanner-${SONAR_VERSION}-linux-x64/bin/sonar-scanner /usr/local/bin/sonar-scanner
@@ -144,7 +144,7 @@ RUN case "$(dpkg --print-architecture)" in \
         arm64) AWS_ARCH=aarch64 ;; \
         *) echo "unsupported arch"; exit 1 ;; \
     esac && \
-    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscliv2.zip && \
+    curl -fsSL --connect-timeout 30 "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscliv2.zip && \
     unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install && \
     rm -rf /tmp/aws /tmp/awscliv2.zip
 
