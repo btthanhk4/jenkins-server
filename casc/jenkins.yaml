@@ -30,13 +30,9 @@ jenkins:
         - "Overall/Read:authenticated"
 
   # --- Hardening: bảo mật kênh controller <-> agent ---
+  # (Jenkins hiện đại đã tự tắt các agent protocol cũ; không cần khai báo tay.)
   remotingSecurity:
     enabled: true
-
-  # Chỉ cho phép giao thức agent hiện đại (tắt các protocol cũ, dễ tấn công)
-  agentProtocols:
-    - "JNLP4-connect"
-    - "Ping"
 
   # --- CSRF crumb (bật sẵn; excludeClientIP=true khi chạy sau reverse proxy) ---
   crumbIssuer:
