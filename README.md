@@ -136,11 +136,14 @@ sudo systemctl enable docker
 {
   "log-driver": "json-file",
   "log-opts": { "max-size": "10m", "max-file": "3" },
-  "live-restore": true,
-  "storage-driver": "overlay2"
+  "live-restore": true
 }
 ```
 Rồi `sudo systemctl restart docker`.
+
+> ⚠️ KHÔNG thêm `"storage-driver"` vào đây. Ép storage driver khác với mặc định
+> của Docker sẽ khiến `docker images`/`docker ps` trống (image cũ vẫn còn trên
+> disk nhưng Docker nhìn sang kho khác). Cứ để Docker tự chọn driver mặc định.
 
 **3. Cron dọn disk hằng tuần** (`crontab -e`):
 ```cron
