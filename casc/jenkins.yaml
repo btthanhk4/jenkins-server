@@ -1,20 +1,21 @@
 # ============================================================================
 # Jenkins Configuration as Code (JCasC)
 # Docs: https://github.com/jenkinsci/configuration-as-code-plugin
-# Mọi ${VAR} được đọc từ biến môi trường (khai báo trong .env / docker-compose).
+# CHỈ dùng các key chuẩn, ổn định giữa các version. Mọi ${VAR} đọc từ .env.
+# Hardening nâng cao (SSHD, crumb, agentProtocols...) đã bỏ vì schema đổi theo
+# version và gây boot-fail; thêm lại sau qua UI hoặc key đã kiểm chứng.
 # ============================================================================
 
 jenkins:
-  systemMessage: "Jenkins DevOps — Managed by Configuration as Code. KHÔNG chỉnh tay trên UI."
+  systemMessage: "Jenkins DevOps — Managed by Configuration as Code."
   # 12 vCPU / 24GB: 4 executor an toàn cho controller all-in-one.
-  # Nâng lên 6 nếu build phần lớn chạy trong container (nhẹ cho JVM).
   numExecutors: 4
   mode: NORMAL
   scmCheckoutRetryCount: 3
   labelString: "built-in linux docker"
   quietPeriod: 3
 
-  # --- Bảo mật đăng nhập nội bộ ---
+  # --- Đăng nhập nội bộ ---
   securityRealm:
     local:
       allowsSignup: false
@@ -29,31 +30,9 @@ jenkins:
         - "Overall/Administer:${JENKINS_ADMIN_ID}"
         - "Overall/Read:authenticated"
 
-  # --- Hardening: bảo mật kênh controller <-> agent ---
-  # (Jenkins hiện đại đã tự tắt các agent protocol cũ; không cần khai báo tay.)
+  # --- Bảo mật kênh controller <-> agent (key ổn định) ---
   remotingSecurity:
     enabled: true
-
-  # --- CSRF crumb (bật sẵn; excludeClientIP=true khi chạy sau reverse proxy) ---
-  crumbIssuer:
-    standard:
-      excludeClientIPFromCrumb: true
-
-# ============================================================================
-# Bảo mật nâng cao
-# ============================================================================
-security:
-  # Tắt SSHD server tích hợp (giảm bề mặt tấn công; -1 = disabled)
-  sSHD:
-    port: -1
-  # Ép Job DSL/script chạy trong sandbox
-  globalJobDslSecurityConfiguration:
-    useScriptSecurity: true
-  # Ai trigger build thì chạy dưới quyền người đó
-  queueItemAuthenticator:
-    authenticators:
-      - global:
-          strategy: triggeringUsersAuthorizationStrategy
 
 # ============================================================================
 # Cấu hình chung
@@ -63,17 +42,8 @@ unclassified:
     url: "${JENKINS_URL}"
     adminAddress: "${JENKINS_ADMIN_EMAIL}"
 
-  # Tắt gửi thống kê usage ra ngoài
-  usageStatistics:
-    enabled: false
-
-  # --- Slack (bỏ comment + tạo credential 'slack-token' khi dùng) ---
-  # slackNotifier:
-  #   teamDomain: "your-team"
-  #   tokenCredentialId: "slack-token"
-
 # ============================================================================
-# Công cụ (đường dẫn khớp với image trong docker/Dockerfile)
+# Công cụ (đường dẫn khớp image trong docker/Dockerfile)
 # ============================================================================
 tool:
   git:
@@ -84,7 +54,6 @@ tool:
     installations:
       - name: "Maven-3.9"
         home: "/opt/maven"
-  # Node đã có sẵn global trên PATH của image -> gọi trực tiếp trong pipeline.
 
 # ============================================================================
 # Credentials - đọc từ ENV (.env), KHÔNG hardcode secret vào git.
@@ -93,31 +62,14 @@ credentials:
   system:
     domainCredentials:
       - credentials:
-          # Dùng cho HTTPS clone + hầu hết thao tác (user + Personal Access Token)
           - usernamePassword:
               scope: GLOBAL
               id: "gitlab-credentials"
               username: "${GITLAB_USER}"
               password: "${GITLAB_TOKEN}"
               description: "GitLab HTTPS + PAT (user/token)"
-          # Dùng trong pipeline qua withCredentials(string(...)) hoặc gọi API
           - string:
               scope: GLOBAL
               id: "gitlab-api-token"
               secret: "${GITLAB_TOKEN}"
               description: "GitLab PAT (secret text)"
-
-# ----------------------------------------------------------------------------
-# (Tuỳ chọn) Kết nối GitLab cho plugin gitlab (webhook / commit status).
-# Bật sau khi base chạy ổn. Nếu key báo lỗi lúc load CASC, cấu hình qua UI:
-# Manage Jenkins -> System -> GitLab.
-# ----------------------------------------------------------------------------
-# unclassified:
-#   gitLabConnectionConfig:
-#     connections:
-#       - name: "gitlab"
-#         url: "${GITLAB_URL}"
-#         apiTokenId: "gitlab-api-token"
-#         clientBuilderId: "autodetect"
-#         connectionTimeout: 20
-#         readTimeout: 10
