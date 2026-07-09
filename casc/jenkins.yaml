@@ -6,7 +6,9 @@
 
 jenkins:
   systemMessage: "Jenkins DevOps — Managed by Configuration as Code. KHÔNG chỉnh tay trên UI."
-  numExecutors: 2
+  # 12 vCPU / 24GB: 4 executor an toàn cho controller all-in-one.
+  # Nâng lên 6 nếu build phần lớn chạy trong container (nhẹ cho JVM).
+  numExecutors: 4
   mode: NORMAL
   scmCheckoutRetryCount: 3
   labelString: "built-in linux docker"

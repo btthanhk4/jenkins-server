@@ -16,7 +16,16 @@ services:
     # Jenkins cần thời gian shutdown gọn (drain build) trước khi bị kill
     stop_grace_period: 90s
     # /dev/shm lớn hơn cho browser test / trình biên dịch nặng
-    shm_size: "512m"
+    shm_size: "1g"
+
+    # Chống "Too many open files" / cạn process khi chạy nhiều job song song
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc: 32768
+    # Trần số process trong container (chặn fork-bomb do build lỗi)
+    pids_limit: 8192
 
     ports:
       - "${JENKINS_HTTP_PORT:-8080}:8080"     # Web UI
@@ -66,12 +75,15 @@ services:
       start_period: 120s
 
     # Giới hạn tài nguyên (docker compose v2 honor deploy.resources.limits)
+    # VM 24GB/12core: cấp 10G cho Jenkins, chừa ~14G cho OS + build container
+    # (build qua docker.sock chạy NGOÀI limit này nên phải chừa RAM host).
     deploy:
       resources:
         limits:
-          memory: "${JENKINS_MEM_LIMIT:-4g}"
+          memory: "${JENKINS_MEM_LIMIT:-10g}"
+          cpus: "${JENKINS_CPU_LIMIT:-10}"
         reservations:
-          memory: "1g"
+          memory: "2g"
 
     logging:
       driver: json-file

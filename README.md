@@ -100,6 +100,60 @@ co giãn theo RAM container), heap dump khi OOM. Giới hạn RAM qua `JENKINS_M
 
 ---
 
+## 🛡️ Độ bền & tự phục hồi (VM 24GB · 12 vCPU · 150GB NVMe)
+
+Đã tính toán cấu hình theo đúng phần cứng VM:
+
+| Tài nguyên | Giá trị | Lý do |
+|---|---|---|
+| RAM Jenkins (`JENKINS_MEM_LIMIT`) | `10g` (heap ~7g) | Chừa ~14g cho OS + build container chạy qua docker.sock |
+| CPU cap (`JENKINS_CPU_LIMIT`) | `10` | Chừa 2 core cho OS, tránh Jenkins làm nghẽn host |
+| `numExecutors` | `4` | Cân bằng cho controller all-in-one; nâng `6` nếu build chạy trong container |
+| `ulimits nofile` | `65536` | Chống "Too many open files" khi nhiều job song song |
+| `pids_limit` | `8192` | Chặn fork-bomb do build lỗi |
+
+**Ma trận các kiểu lỗi & cách hệ thống tự xử lý:**
+
+| Kiểu lỗi | Cơ chế phục hồi |
+|---|---|
+| Container crash / VM reboot / mất điện | `restart: unless-stopped` (cần `systemctl enable docker`) |
+| JVM hết heap (OOM) | `ExitOnOutOfMemoryError` → thoát → restart |
+| Jenkins treo/deadlock (unhealthy) | sidecar `autoheal` restart sau ~15s |
+| RAM vượt limit | cgroup giới hạn ở 10g, không lan sang host |
+| Đầy disk (image/cache tích tụ) | `make maintenance` + cron dọn định kỳ |
+| Nhiều job → cạn file descriptor | `ulimits nofile=65536` |
+| Restart/nâng cấp Docker daemon | `live-restore: true` (container không bị dừng) |
+
+### Bắt buộc làm trên host (1 lần)
+
+**1. Bật Docker tự khởi động cùng máy:**
+```bash
+sudo systemctl enable docker
+```
+
+**2. Cấu hình Docker daemon** — tạo `/etc/docker/daemon.json`:
+```json
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "live-restore": true,
+  "storage-driver": "overlay2"
+}
+```
+Rồi `sudo systemctl restart docker`.
+
+**3. Cron dọn disk hằng tuần** (`crontab -e`):
+```cron
+0 3 * * 0 cd /home/jits/jenkins && bash scripts/docker-maintenance.sh >> /var/log/jenkins-maint.log 2>&1
+```
+
+**4. Giới hạn tài nguyên cho build container.** Build chạy qua `docker.sock` KHÔNG bị `JENKINS_MEM_LIMIT` giới hạn. Trong pipeline nên thêm `--memory` / `--cpus`:
+```groovy
+sh 'docker build --memory=2g --cpus=2 -t $IMAGE:$TAG .'
+```
+
+---
+
 ## 🔐 Bảo mật
 
 - **Không bao giờ** commit `.env` hay secret (đã chặn trong `.gitignore`).

@@ -7,7 +7,7 @@
 COMPOSE := docker compose
 JENKINS_HOME_HOST ?= /data/jenkins_home
 
-.PHONY: help bootstrap network build up down restart logs ps shell password backup restore pull clean
+.PHONY: help bootstrap network build up down restart logs ps shell password maintenance backup restore pull clean
 
 help: ## Hiển thị danh sách lệnh
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -44,6 +44,9 @@ shell: ## Vào shell trong container
 
 password: ## In initial admin password (nếu setup wizard bật)
 	$(COMPOSE) exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+
+maintenance: ## Dọn image/cache Docker thừa (tránh đầy disk)
+	bash scripts/docker-maintenance.sh
 
 backup: ## Sao lưu JENKINS_HOME
 	bash scripts/backup.sh
