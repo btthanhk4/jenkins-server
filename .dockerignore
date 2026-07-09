@@ -1,0 +1,15 @@
+# Không đưa các file này vào build context -> build nhanh & an toàn hơn
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+backups/
+data/
+jenkins_home/
+scripts/
+examples/
+*.md
+Makefile
+.vscode/
+.idea/

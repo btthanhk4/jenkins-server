@@ -1,0 +1,6 @@
+# Ép LF cho các file chạy trên Linux (tránh lỗi CRLF khi clone từ Windows)
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+Makefile    text eol=lf

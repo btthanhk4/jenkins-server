@@ -1,0 +1,49 @@
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: jenkins-devops:latest
+    container_name: jenkins
+    restart: unless-stopped
+
+    ports:
+      - "${JENKINS_HTTP_PORT:-8080}:8080"     # Web UI
+      - "${JENKINS_AGENT_PORT:-50000}:50000"  # Kết nối agent (JNLP)
+
+    environment:
+      TZ: "${TZ:-Asia/Ho_Chi_Minh}"
+      JENKINS_URL: "${JENKINS_URL}"
+      JENKINS_ADMIN_ID: "${JENKINS_ADMIN_ID}"
+      JENKINS_ADMIN_PASSWORD: "${JENKINS_ADMIN_PASSWORD}"
+      JENKINS_ADMIN_EMAIL: "${JENKINS_ADMIN_EMAIL}"
+      CASC_JENKINS_CONFIG: "/var/jenkins_home/casc/jenkins.yaml"
+      JAVA_OPTS: >-
+        -Djenkins.install.runSetupWizard=false
+        -Dhudson.model.DirectoryBrowserSupport.CSP=
+
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      # Nạp cấu hình JCasC (read-only)
+      - ./casc/jenkins.yaml:/var/jenkins_home/casc/jenkins.yaml:ro
+      # Cho phép Jenkins điều khiển Docker của host (Docker-out-of-Docker)
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8080/login"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+    networks:
+      - jenkins-net
+
+volumes:
+  jenkins_home:
+    name: jenkins_home
+
+networks:
+  jenkins-net:
+    name: jenkins-net
+    driver: bridge
