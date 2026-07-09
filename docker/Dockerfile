@@ -118,13 +118,16 @@ RUN ARCH=$(dpkg --print-architecture) && \
     vault version
 
 ###############################################################################
-# Sonar Scanner CLI
+# Sonar Scanner CLI (file tải có tiền tố sonar-scanner-cli-; dir giải nén không)
 ###############################################################################
 ARG SONAR_VERSION=7.2.0.5079
-RUN curl -fsSL --connect-timeout 30 "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-${SONAR_VERSION}-linux-x64.zip" \
-      -o /tmp/sonar.zip && \
-    unzip -o /tmp/sonar.zip -d /opt && rm -f /tmp/sonar.zip && \
-    ln -s /opt/sonar-scanner-${SONAR_VERSION}-linux-x64/bin/sonar-scanner /usr/local/bin/sonar-scanner
+RUN set -eux; \
+    curl -fsSL --connect-timeout 30 -o /tmp/sonar.zip \
+      "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_VERSION}-linux-x64.zip"; \
+    unzip -q /tmp/sonar.zip -d /opt && rm -f /tmp/sonar.zip; \
+    ln -sfn "$(find /opt -maxdepth 1 -type d -name 'sonar-scanner-*' | sort | head -1)" /opt/sonar-scanner; \
+    ln -sf /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner; \
+    sonar-scanner --version || true
 
 ###############################################################################
 # Trivy
