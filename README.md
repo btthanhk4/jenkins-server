@@ -144,7 +144,7 @@ Rồi `sudo systemctl restart docker`.
 
 **3. Cron dọn disk hằng tuần** (`crontab -e`):
 ```cron
-0 3 * * 0 cd /home/jits/jenkins && bash scripts/docker-maintenance.sh >> /var/log/jenkins-maint.log 2>&1
+0 3 * * 0 cd ~/jenkins-server && bash scripts/docker-maintenance.sh >> ~/jenkins-maint.log 2>&1
 ```
 
 **4. Giới hạn tài nguyên cho build container.** Build chạy qua `docker.sock` KHÔNG bị `JENKINS_MEM_LIMIT` giới hạn. Trong pipeline nên thêm `--memory` / `--cpus`:
