@@ -1,35 +1,61 @@
 # ============================================================================
-# Values riêng cho service wallet-be-admin (dev).
-# Provision:  helm upgrade --install bnf-wallet-be-admin ./helm/bnf-service \
-#               -n bnf-wallet-be-admin-dev-ns --create-namespace \
-#               -f helm/bnf-service/values-wallet-be-admin.yaml
+# values cho wallet-be-admin (dev) — KHỚP deployment thật.
+# CHỈ chứa TÊN secret, KHÔNG chứa giá trị secret.
+# Provision:
+#   helm upgrade --install bnf-wallet-be-admin ./helm/bnf-service \
+#     -n bnf-wallet-be-admin-dev-ns --create-namespace \
+#     -f helm/bnf-service/values-wallet-be-admin.yaml
 # ============================================================================
 
 appName: bnf-wallet-be-admin-dev
+appLabel: wallet-be-admin
 
 image:
   repository: registry.gitlab.com/neonstudio/bnf/release-image/wallet-be-admin
-  tag: latest                        # pipeline sẽ set image thật sau
-  pullSecret: gitlab-registry
+  tag: dev-2511                       # pipeline set image thật sau
+  pullPolicy: IfNotPresent
+
+imagePullSecret: bnf-wallet-be-admin-dev-pull-secret
 
 containerPort: 2222
 servicePort: 2222
+terminationGracePeriodSeconds: 250
+preStopSleep: 160
+
+# Env công khai. (MINIO_* KHÔNG để ở đây — đưa vào secret-env-be1 cho an toàn.)
+env:
+  NODE_ENV: dev
+  TZ: Asia/Ho_Chi_Minh
+  MODE: admin
+
+# Secret env-var (app đọc qua process.env)
+envFromSecrets:
+  - secret-env-be1
+
+# File config mount vào container
+fileSecrets:
+  - volumeName: env-file
+    secretName: env-file-secret-wallet-be-admin
+    mountPath: /usr/src/app/config/env/dev.js
+    subPath: dev.js
+
+emptyDirs:
+  - { name: tmp-data, mountPath: /tmp }
+  - { name: sails-tmp, mountPath: /usr/src/app/.tmp }
+
+# MongoDB nodes (map hostname -> IP)
+hostAliases:
+  - { ip: 10.0.20.55, hostnames: [mongodb-v8-node1] }
+  - { ip: 10.0.20.56, hostnames: [mongodb-v8-node2] }
+  - { ip: 10.0.20.57, hostnames: [mongodb-v8-node3] }
 
 resources:
-  requests: { cpu: 100m, memory: 256Mi }
-  limits:   { cpu: "1",  memory: 1Gi }   # app dùng heap 1.5G -> để >=1Gi (chỉnh nếu cần 2Gi)
+  requests: { cpu: 512m, memory: 1Gi }
+  limits:   { cpu: 1024m, memory: 1512Mi }
 
-# Secret dạng FILE (khớp ENV_FILES pipeline tạo). ĐỔI mountPath theo đúng app cần.
-fileSecrets:
-  - name: secret-env-be
-    mountPath: /usr/src/app/.env
-    subPath: secret-env-be
-  - name: env-file-secret-wallet-be-admin
-    mountPath: /usr/src/app/config/env.js
-    subPath: env-file-secret-wallet-be-admin
-  - name: config-env-secret-wallet-be-admin
-    mountPath: /usr/src/app/config/config-env.js
-    subPath: config-env-secret-wallet-be-admin
+probes:
+  enabled: true
+  path: /
 
 hpa:
   enabled: true
@@ -39,4 +65,7 @@ hpa:
   memory: 75
 
 ingress:
-  enabled: false
+  enabled: true
+  className: kong
+  host: apiadmin-dev.svc.bnf
+  rewriteTarget: true

@@ -4,7 +4,11 @@ kind: Ingress
 metadata:
   name: {{ .Values.appName }}-ingress
   labels:
-    app: {{ .Values.appName }}
+    app: {{ .Values.appLabel }}
+  {{- if .Values.ingress.rewriteTarget }}
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:

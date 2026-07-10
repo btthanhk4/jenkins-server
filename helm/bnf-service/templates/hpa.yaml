@@ -4,7 +4,7 @@ kind: HorizontalPodAutoscaler
 metadata:
   name: {{ .Values.appName }}-hpa
   labels:
-    app: {{ .Values.appName }}
+    app: {{ .Values.appLabel }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -15,14 +15,21 @@ spec:
   metrics:
     - type: Resource
       resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.hpa.cpu }}
+        name: memory
+        target: { type: Utilization, averageUtilization: {{ .Values.hpa.memory }} }
     - type: Resource
       resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.hpa.memory }}
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ .Values.hpa.cpu }} }
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - { type: Pods, value: 4, periodSeconds: 15 }
+        - { type: Percent, value: 100, periodSeconds: 15 }
+    scaleDown:
+      selectPolicy: Max
+      policies:
+        - { type: Percent, value: 100, periodSeconds: 15 }
 {{- end }}

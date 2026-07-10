@@ -1,56 +1,74 @@
 # ============================================================================
-# Giá trị MẶC ĐỊNH. Mỗi service tạo 1 file values-<service>.yaml ghi đè.
-# appName = {project}-{int}-{env}  -> mọi tài nguyên đặt tên theo nó:
-#   deployment: {appName}-deployment   service: {appName}-service
-#   hpa:        {appName}-hpa           container: {appName}-container
-# (Khớp đúng convention cụm BNF của bạn.)
+# Giá trị MẶC ĐỊNH (khớp cấu trúc thật cụm BNF). Mỗi service tạo values-<svc>.yaml.
+# appName  = {project}-{int}-{env}   -> tên deployment/service/hpa/container
+# appLabel = nhãn app (selector), vd: wallet-be-admin
+# LƯU Ý: chart CHỈ tham chiếu secret theo TÊN. Secret do IaC/pipeline tạo.
 # ============================================================================
 
-appName: bnf-example-dev            # BẮT BUỘC đổi cho từng service
+appName: bnf-example-dev
+appLabel: example
 
 image:
   repository: registry.gitlab.com/neonstudio/bnf/release-image/example
   tag: latest
-  pullSecret: gitlab-registry       # imagePullSecret (pipeline tự tạo trong ns)
+  pullPolicy: IfNotPresent
 
-containerPort: 2222
+imagePullSecret: bnf-example-dev-pull-secret   # secret kiểu dockerconfigjson
+
+containerPort: 2222        # cổng app (đặt tên 'app-port')
 servicePort: 2222
-replicaCount: 1                     # bị bỏ qua nếu hpa.enabled=true
+replicaCount: 1            # bị bỏ qua nếu hpa.enabled=true
+
+terminationGracePeriodSeconds: 250
+preStopSleep: 160          # sleep trước khi tắt (0 = tắt lifecycle)
+
+# --- Env công khai inline (KHÔNG để secret ở đây) ---
+env:
+  NODE_ENV: dev
+  TZ: Asia/Ho_Chi_Minh
+
+# --- Secret kiểu env var (envFrom) -> app đọc qua process.env ---
+envFromSecrets: []
+#   - secret-env-be1
+
+# --- Secret mount thành FILE ---
+fileSecrets: []
+#   - volumeName: env-file
+#     secretName: env-file-secret-wallet-be-admin
+#     mountPath: /usr/src/app/config/env/dev.js
+#     subPath: dev.js
+
+# --- Thư mục tạm (emptyDir) ---
+emptyDirs:
+  - { name: tmp-data, mountPath: /tmp }
+  - { name: sails-tmp, mountPath: /usr/src/app/.tmp }
+
+# --- hostAliases (map hostname -> IP, vd cụm MongoDB) ---
+hostAliases: []
+#   - { ip: 10.0.20.55, hostnames: [mongodb-v8-node1] }
 
 resources:
-  requests: { cpu: 100m, memory: 256Mi }
-  limits:   { cpu: "1",  memory: 1Gi }
+  requests: { cpu: 512m, memory: 1Gi }
+  limits:   { cpu: 1024m, memory: 1512Mi }
 
-# --- Env công khai (inline) ---
-env: {}
-#   NODE_ENV: production
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
 
-# --- Secret kiểu KEY=VALUE (tạo bằng --from-env-file) -> nạp làm biến env ---
-envFromSecrets: []
-#   - some-env-secret
-envFromConfigMaps: []
+probes:
+  enabled: true
+  path: /
 
-# --- Secret kiểu FILE (tạo bằng --from-file) -> mount thành file cho app đọc ---
-fileSecrets: []
-#   - name: env-file-secret-wallet-be-admin      # tên k8s Secret
-#     mountPath: /usr/src/app/config/env.js       # đường dẫn mount trong container
-#     subPath: env-file-secret-wallet-be-admin    # key bên trong secret
-
-# --- HPA (auto-scale) ---
 hpa:
   enabled: true
   minReplicas: 1
-  maxReplicas: 3
+  maxReplicas: 1
   cpu: 80
   memory: 75
 
-# --- Ingress (tùy chọn) ---
 ingress:
   enabled: false
-  className: nginx
+  className: kong
   host: ""
-
-# --- Health probe (tùy chọn) ---
-probes:
-  enabled: false
-  path: /health
+  rewriteTarget: true
