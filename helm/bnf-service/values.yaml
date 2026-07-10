@@ -1,0 +1,56 @@
+# ============================================================================
+# Giá trị MẶC ĐỊNH. Mỗi service tạo 1 file values-<service>.yaml ghi đè.
+# appName = {project}-{int}-{env}  -> mọi tài nguyên đặt tên theo nó:
+#   deployment: {appName}-deployment   service: {appName}-service
+#   hpa:        {appName}-hpa           container: {appName}-container
+# (Khớp đúng convention cụm BNF của bạn.)
+# ============================================================================
+
+appName: bnf-example-dev            # BẮT BUỘC đổi cho từng service
+
+image:
+  repository: registry.gitlab.com/neonstudio/bnf/release-image/example
+  tag: latest
+  pullSecret: gitlab-registry       # imagePullSecret (pipeline tự tạo trong ns)
+
+containerPort: 2222
+servicePort: 2222
+replicaCount: 1                     # bị bỏ qua nếu hpa.enabled=true
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { cpu: "1",  memory: 1Gi }
+
+# --- Env công khai (inline) ---
+env: {}
+#   NODE_ENV: production
+
+# --- Secret kiểu KEY=VALUE (tạo bằng --from-env-file) -> nạp làm biến env ---
+envFromSecrets: []
+#   - some-env-secret
+envFromConfigMaps: []
+
+# --- Secret kiểu FILE (tạo bằng --from-file) -> mount thành file cho app đọc ---
+fileSecrets: []
+#   - name: env-file-secret-wallet-be-admin      # tên k8s Secret
+#     mountPath: /usr/src/app/config/env.js       # đường dẫn mount trong container
+#     subPath: env-file-secret-wallet-be-admin    # key bên trong secret
+
+# --- HPA (auto-scale) ---
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  cpu: 80
+  memory: 75
+
+# --- Ingress (tùy chọn) ---
+ingress:
+  enabled: false
+  className: nginx
+  host: ""
+
+# --- Health probe (tùy chọn) ---
+probes:
+  enabled: false
+  path: /health

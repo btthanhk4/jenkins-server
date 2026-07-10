@@ -1,0 +1,6 @@
+apiVersion: v2
+name: bnf-service
+description: Chart deployment DÙNG CHUNG cho mọi service BNF (Deployment+Service+HPA+Ingress)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

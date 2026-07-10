@@ -1,0 +1,42 @@
+# ============================================================================
+# Values riêng cho service wallet-be-admin (dev).
+# Provision:  helm upgrade --install bnf-wallet-be-admin ./helm/bnf-service \
+#               -n bnf-wallet-be-admin-dev-ns --create-namespace \
+#               -f helm/bnf-service/values-wallet-be-admin.yaml
+# ============================================================================
+
+appName: bnf-wallet-be-admin-dev
+
+image:
+  repository: registry.gitlab.com/neonstudio/bnf/release-image/wallet-be-admin
+  tag: latest                        # pipeline sẽ set image thật sau
+  pullSecret: gitlab-registry
+
+containerPort: 2222
+servicePort: 2222
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { cpu: "1",  memory: 1Gi }   # app dùng heap 1.5G -> để >=1Gi (chỉnh nếu cần 2Gi)
+
+# Secret dạng FILE (khớp ENV_FILES pipeline tạo). ĐỔI mountPath theo đúng app cần.
+fileSecrets:
+  - name: secret-env-be
+    mountPath: /usr/src/app/.env
+    subPath: secret-env-be
+  - name: env-file-secret-wallet-be-admin
+    mountPath: /usr/src/app/config/env.js
+    subPath: env-file-secret-wallet-be-admin
+  - name: config-env-secret-wallet-be-admin
+    mountPath: /usr/src/app/config/config-env.js
+    subPath: config-env-secret-wallet-be-admin
+
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 1
+  cpu: 80
+  memory: 75
+
+ingress:
+  enabled: false
