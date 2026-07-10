@@ -49,9 +49,21 @@ pipeline {
         string(name: 'GIT_BRANCH', defaultValue: '', description: 'Branch')
         string(name: 'COMMIT_MESSAGE', defaultValue: '', description: 'Commit Message')
         string(name: 'COMMIT_NAME', defaultValue: '', description: 'Commit Hash')
+        // [VAULT KEY MAPPING] — tên KEY trên Vault (không phải giá trị)
+        string(name: 'VAULT_DOCKERFILE_KEY', defaultValue: 'dockerfile-be-admin', description: 'Tên key Dockerfile trên Vault (vd: dockerfile-be-admin)')
+        string(name: 'VAULT_GRUNTFILE_KEY', defaultValue: '', description: '(Optional) Tên key Gruntfile trên Vault (vd: grunt-file-be)')
+        // ENV FILES: mỗi DÒNG = 1 file env -> 1 k8s Secret trong namespace của service.
+        // Cú pháp mỗi dòng:  vaultKey  |  secretName(optional)  |  fileKey(optional)
+        //   - vaultKey   : tên key trên Vault để lấy nội dung file
+        //   - secretName : tên k8s Secret (mặc định = vaultKey)
+        //   - fileKey    : tên file bên trong Secret (mặc định = secretName)
+        // Thêm/bớt file = thêm/bớt dòng.
+        text(name: 'ENV_FILES', defaultValue: '''secret-env-be
+env-file-secret-wallet-be-admin
+config-env-secret-wallet-be-admin''', description: 'Danh sách env file (mỗi dòng 1 file). Xem cú pháp trong pipeline.')
         // [DEPLOY]
-        string(name: 'CLIENT_SECRET_NAME', defaultValue: '', description: 'List Secret K8s (optional)')
-        string(name: 'CLIENT_LOCATION_VAULT', defaultValue: '', description: 'JSON list file lấy từ Vault (optional)')
+        string(name: 'CLIENT_SECRET_NAME', defaultValue: '', description: 'List Secret K8s (optional, legacy)')
+        string(name: 'CLIENT_LOCATION_VAULT', defaultValue: '', description: 'JSON list file lấy từ Vault (optional, legacy)')
         string(name: 'SELECTED_INTS', defaultValue: '', description: 'JSON list tên service/integration')
         string(name: 'NAMESPACE', defaultValue: '', description: 'Namespace override (optional)')
         // [OPTIONS - mới]
@@ -171,9 +183,21 @@ def runCheckoutSource() {
 def runGruntBuild() {
     runWithHandling("Grunt Build") {
         def dir = "${params.PROJECT_NAME}-${params.ENVIRONMENT}"
+        def gKey = params.VAULT_GRUNTFILE_KEY?.trim()
         if (!fileExists("${dir}/Gruntfile.js")) {
-            echo "Không thấy ${dir}/Gruntfile.js -> bỏ qua Grunt (app không cần)."
-            return
+            if (gKey) {
+                // Lấy Gruntfile từ Vault (vd be-admin dùng key 'grunt-file-be')
+                vaultLogin()
+                sh """
+                    set +x
+                    vault kv get -field=${gKey} -address=${params.VAULT_ADDR} ${params.VAULT_PATH} > ${dir}/Gruntfile.js
+                    set -x
+                """
+                echo "Đã lấy Gruntfile từ Vault key: ${gKey}"
+            } else {
+                echo "Không có Gruntfile (repo & Vault) -> bỏ qua Grunt."
+                return
+            }
         }
         def task = params.GRUNT_TASK?.trim() ?: ''
         echo "Chạy Grunt build (task='${task ?: 'default'}')..."
@@ -192,13 +216,17 @@ def runBuildImage() {
         env.GENERATED_IMAGE_PATH = "${params.IMAGE_REPO}:${tag}"
         echo "Build: ${env.GENERATED_IMAGE_PATH}"
         vaultLogin()
-        // Ưu tiên Dockerfile trong repo (chuẩn); nếu không có mới lấy từ Vault (giữ model cũ).
+        def dfKey = params.VAULT_DOCKERFILE_KEY?.trim()
+        // Ưu tiên Dockerfile trong repo; nếu không có mới lấy từ Vault theo key đã nhập.
         sh """
             set +x
             cd ${dir}
             if [ ! -f Dockerfile ]; then
-              echo "Không có Dockerfile trong repo -> lấy từ Vault"
-              vault kv get -field=DOCKER_FILE -address=${params.VAULT_ADDR} ${params.VAULT_PATH} > Dockerfile
+              if [ -z "${dfKey}" ]; then
+                echo "Repo không có Dockerfile và VAULT_DOCKERFILE_KEY trống"; exit 1
+              fi
+              echo "Lấy Dockerfile từ Vault key: ${dfKey}"
+              vault kv get -field=${dfKey} -address=${params.VAULT_ADDR} ${params.VAULT_PATH} > Dockerfile
             fi
             set -x
             docker build -t ${env.GENERATED_IMAGE_PATH} .
@@ -258,6 +286,43 @@ def runGetAppSecrets() {
     }
 }
 
+// Parse param ENV_FILES (nhiều dòng) -> danh sách [vaultKey, secretName, fileKey].
+// Cú pháp mỗi dòng:  vaultKey | secretName(optional) | fileKey(optional)
+def parseEnvFiles() {
+    def out = []
+    if (!params.ENV_FILES?.trim()) return out
+    params.ENV_FILES.split("\n").each { raw ->
+        def line = raw.trim()
+        if (!line || line.startsWith('#')) return
+        def parts = line.split("\\|").collect { it.trim() }
+        def vaultKey = parts[0]
+        if (!vaultKey) return
+        def secretName = (parts.size() > 1 && parts[1]) ? parts[1] : vaultKey
+        def fileKey    = (parts.size() > 2 && parts[2]) ? parts[2] : secretName
+        out << [vaultKey: vaultKey, secretName: secretName, fileKey: fileKey]
+    }
+    return out
+}
+
+// Với mỗi env file: lấy nội dung từ Vault -> tạo 1 k8s Secret trong namespace.
+// Nội dung secret chỉ nằm trong file tạm .secure, không in log, dọn ngay sau khi apply.
+def applyEnvFileSecrets(String kube, String ns) {
+    def files = parseEnvFiles()
+    if (!files) { echo "ENV_FILES trống -> không tạo secret."; return }
+    files.each { f ->
+        sh """
+            set +x
+            vault kv get -field=${f.vaultKey} -address=${params.VAULT_ADDR} ${params.VAULT_PATH} > .secure/${f.fileKey}
+            KUBECONFIG=${kube} kubectl create secret generic ${f.secretName} \
+              --from-file=${f.fileKey}=.secure/${f.fileKey} -n ${ns} \
+              --dry-run=client -o yaml | KUBECONFIG=${kube} kubectl apply -f -
+            rm -f .secure/${f.fileKey}
+            set -x
+        """
+        echo "Secret '${f.secretName}' (file '${f.fileKey}') -> ns ${ns}"
+    }
+}
+
 def runDeployToCluster() {
     runWithHandling("Deploy to Cluster") {
         if (!params.SELECTED_INTS?.trim()) { echo "SELECTED_INTS trống — bỏ qua."; return }
@@ -287,14 +352,9 @@ def runDeployToCluster() {
             def secret = "secret-env-${name}"
             echo "=== ${name}  (ns=${ns}, deploy=${deploy}) ==="
 
-            // Nạp secret-file (nếu Get App Secrets đã tải về)
-            if (fileExists(secret)) {
-                sh """
-                    export KUBECONFIG=${kube}
-                    kubectl create secret generic ${secret} --from-file=${secret}=${secret} -n ${ns} \
-                      --dry-run=client -o yaml | kubectl apply -f -
-                """
-            }
+            // Tạo namespace nếu chưa có, rồi apply mọi ENV_FILES thành k8s Secret.
+            sh "KUBECONFIG=${kube} kubectl create namespace ${ns} --dry-run=client -o yaml | KUBECONFIG=${kube} kubectl apply -f -"
+            applyEnvFileSecrets(kube, ns)
 
             if (params.ACTION == 'imagebase') {
                 sh """
