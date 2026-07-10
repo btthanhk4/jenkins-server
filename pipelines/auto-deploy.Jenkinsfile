@@ -65,7 +65,10 @@ config-env-secret-wallet-be-admin''', description: 'Danh sách env file (mỗi d
         string(name: 'CLIENT_SECRET_NAME', defaultValue: '', description: 'List Secret K8s (optional, legacy)')
         string(name: 'CLIENT_LOCATION_VAULT', defaultValue: '', description: 'JSON list file lấy từ Vault (optional, legacy)')
         string(name: 'SELECTED_INTS', defaultValue: '', description: 'JSON list tên service/integration')
-        string(name: 'NAMESPACE', defaultValue: '', description: 'Namespace override (optional)')
+        // --- Đặt tên tài nguyên. Mặc định theo công thức {PROJECT}-{int}-{ENV}-{suffix}.
+        //     Điền override để ÉP đúng tên khi công thức không khớp (chỉ hợp lệ khi 1 int).
+        string(name: 'NAMESPACE', defaultValue: '', description: 'Override tên namespace (trống = {PROJECT}-{int}-{ENV}-ns)')
+        string(name: 'DEPLOYMENT_NAME', defaultValue: '', description: 'Override tên deployment (trống = {PROJECT}-{int}-{ENV}-deployment)')
         // [OPTIONS - mới]
         booleanParam(name: 'RUN_TRIVY', defaultValue: true, description: 'Quét lỗ hổng image (imagebase)')
         booleanParam(name: 'TRIVY_BLOCK', defaultValue: false, description: 'CHẶN nếu có CVE HIGH/CRITICAL')
@@ -346,20 +349,35 @@ def runDeployToCluster() {
         ints.each { item ->
             def name   = item.trim()
             def base   = "${proj}-${name}-${envn}"
-            def ns     = params.NAMESPACE?.trim() ? params.NAMESPACE.trim() : "${base}-ns"
-            def deploy = "${base}-deployment"
-            def cont   = "${base}-container"
+            def ns     = params.NAMESPACE?.trim()       ? params.NAMESPACE.trim()       : "${base}-ns"
+            def deploy = params.DEPLOYMENT_NAME?.trim() ? params.DEPLOYMENT_NAME.trim() : "${base}-deployment"
             def secret = "secret-env-${name}"
-            echo "=== ${name}  (ns=${ns}, deploy=${deploy}) ==="
+            echo "=== ${name}  ->  namespace='${ns}'  deployment='${deploy}' ==="
 
-            // Tạo namespace nếu chưa có, rồi apply mọi ENV_FILES thành k8s Secret.
-            sh "KUBECONFIG=${kube} kubectl create namespace ${ns} --dry-run=client -o yaml | KUBECONFIG=${kube} kubectl apply -f -"
+            // Namespace: chỉ tạo mới nếu chưa có (không đụng namespace do IaC quản lý).
+            sh "KUBECONFIG=${kube} kubectl get namespace ${ns} >/dev/null 2>&1 || KUBECONFIG=${kube} kubectl create namespace ${ns}"
+
+            // Apply mọi ENV_FILES thành k8s Secret trong namespace này.
             applyEnvFileSecrets(kube, ns)
 
+            // CHẶN SAI CHỖ: deployment BẮT BUỘC phải tồn tại sẵn -> sai tên là dừng ngay.
+            sh """
+                export KUBECONFIG=${kube}
+                if ! kubectl get deployment ${deploy} -n ${ns} >/dev/null 2>&1; then
+                  echo "❌ KHÔNG tìm thấy deployment '${deploy}' trong namespace '${ns}'."
+                  echo "   Kiểm tra PROJECT_NAME/SELECTED_INTS/ENVIRONMENT hoặc NAMESPACE/DEPLOYMENT_NAME."
+                  echo "   Các deployment đang có trong ns:"; kubectl get deploy -n ${ns} -o name || true
+                  exit 1
+                fi
+            """
+
             if (params.ACTION == 'imagebase') {
+                // Tự DÒ tên container thật (không đoán) rồi set image.
                 sh """
                     export KUBECONFIG=${kube}
-                    kubectl set image deployment/${deploy} ${cont}=${image} -n ${ns}
+                    CONTAINER=\$(kubectl get deployment ${deploy} -n ${ns} -o jsonpath='{.spec.template.spec.containers[0].name}')
+                    echo "set image -> deployment=${deploy} container=\$CONTAINER image=${image}"
+                    kubectl set image deployment/${deploy} \$CONTAINER=${image} -n ${ns}
                     kubectl rollout status deployment/${deploy} -n ${ns} --timeout=180s \
                       || (echo 'Rollout lỗi -> rollback'; kubectl rollout undo deployment/${deploy} -n ${ns}; exit 1)
                 """
