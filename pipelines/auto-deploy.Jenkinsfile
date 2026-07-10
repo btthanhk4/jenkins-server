@@ -57,12 +57,17 @@ pipeline {
         // [OPTIONS - mới]
         booleanParam(name: 'RUN_TRIVY', defaultValue: true, description: 'Quét lỗ hổng image (imagebase)')
         booleanParam(name: 'TRIVY_BLOCK', defaultValue: false, description: 'CHẶN nếu có CVE HIGH/CRITICAL')
+        // [GRUNT] Bật cho app Sails có asset cần build; tắt cho API thuần.
+        booleanParam(name: 'RUN_GRUNT', defaultValue: false, description: 'Chạy Grunt build asset trước khi build image (app có Gruntfile)')
+        string(name: 'GRUNT_TASK', defaultValue: '', description: 'Task Grunt cụ thể (trống = task mặc định trong Gruntfile)')
     }
 
     stages {
         stage('Initialization')      { steps { script { runInitialization() } } }
         stage('Checkout Source')     { steps { script { runCheckoutSource() } } }
 
+        stage('Grunt Build')         { when { expression { params.ACTION == 'imagebase' && params.RUN_GRUNT } }
+                                       steps { script { runGruntBuild() } } }
         stage('Build Image')         { when { expression { params.ACTION == 'imagebase' } }
                                        steps { script { runBuildImage() } } }
         stage('Trivy Scan')          { when { expression { params.ACTION == 'imagebase' && params.RUN_TRIVY } }
@@ -158,6 +163,25 @@ def runCheckoutSource() {
         env.COMMIT_NAME    = sh(script: "cd ${dir} && git rev-parse --short HEAD", returnStdout: true).trim()
         env.COMMIT_MESSAGE = sh(script: "cd ${dir} && git log -1 --pretty=%B", returnStdout: true).trim()
         echo "Commit: ${env.COMMIT_NAME}"
+    }
+}
+
+// Grunt build asset trên Jenkins (Node 22 có sẵn) TRƯỚC khi docker build.
+// Tự bỏ qua nếu repo không có Gruntfile.js -> an toàn cho cả app không cần Grunt.
+def runGruntBuild() {
+    runWithHandling("Grunt Build") {
+        def dir = "${params.PROJECT_NAME}-${params.ENVIRONMENT}"
+        if (!fileExists("${dir}/Gruntfile.js")) {
+            echo "Không thấy ${dir}/Gruntfile.js -> bỏ qua Grunt (app không cần)."
+            return
+        }
+        def task = params.GRUNT_TASK?.trim() ?: ''
+        echo "Chạy Grunt build (task='${task ?: 'default'}')..."
+        sh """
+            cd ${dir}
+            npm install
+            npx grunt ${task}
+        """
     }
 }
 
