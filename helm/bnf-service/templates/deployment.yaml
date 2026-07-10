@@ -51,6 +51,7 @@ spec:
             {{- range . }}
             - secretRef:
                 name: {{ . }}
+                optional: {{ $.Values.secretsOptional }}
             {{- end }}
           {{- end }}
           {{- if .Values.probes.enabled }}
@@ -96,6 +97,7 @@ spec:
         - name: {{ .volumeName }}
           secret:
             secretName: {{ .secretName }}
+            optional: {{ $.Values.secretsOptional }}
         {{- end }}
         {{- range .Values.emptyDirs }}
         - name: {{ .name }}

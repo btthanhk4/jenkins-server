@@ -22,6 +22,10 @@ replicaCount: 1            # bị bỏ qua nếu hpa.enabled=true
 terminationGracePeriodSeconds: 250
 preStopSleep: 160          # sleep trước khi tắt (0 = tắt lifecycle)
 
+# true = cho phép tạo khung TRƯỚC khi secret tồn tại (secret tạo sau vẫn OK).
+# Đặt false khi muốn chặt chẽ (bắt buộc secret phải có).
+secretsOptional: true
+
 # --- Env công khai inline (KHÔNG để secret ở đây) ---
 env:
   NODE_ENV: dev
