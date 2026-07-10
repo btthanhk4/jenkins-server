@@ -47,11 +47,13 @@ pipeline {
         // [GIT]
         string(name: 'GIT_REPO_URL', defaultValue: '', description: 'Repo URL (HTTPS)')
         string(name: 'GIT_BRANCH', defaultValue: '', description: 'Branch')
+        string(name: 'GIT_CRED', defaultValue: '', description: '(Khuyến nghị) Jenkins credential (user/token) để clone. Trống = dùng GIT_USER/GIT_TOKEN từ Vault')
         string(name: 'COMMIT_MESSAGE', defaultValue: '', description: 'Commit Message')
         string(name: 'COMMIT_NAME', defaultValue: '', description: 'Commit Hash')
         // [VAULT KEY MAPPING] — tên KEY trên Vault (không phải giá trị)
         string(name: 'VAULT_DOCKERFILE_KEY', defaultValue: 'dockerfile-be-admin', description: 'Tên key Dockerfile trên Vault (vd: dockerfile-be-admin)')
         string(name: 'VAULT_GRUNTFILE_KEY', defaultValue: '', description: '(Optional) Tên key Gruntfile trên Vault (vd: grunt-file-be)')
+        string(name: 'VAULT_DOCKERCONFIG_KEY', defaultValue: 'dockerconfigjson', description: '(gitlab/dockerhub) Tên key dockerconfigjson trên Vault để login registry. Trống = dùng DOCKER_USER/DOCKER_PASS')
         // ENV FILES: mỗi DÒNG = 1 file env -> 1 k8s Secret trong namespace của service.
         // Cú pháp mỗi dòng:  vaultKey  |  secretName(optional)  |  fileKey(optional)
         //   - vaultKey   : tên key trên Vault để lấy nội dung file
@@ -69,6 +71,7 @@ config-env-secret-wallet-be-admin''', description: 'Danh sách env file (mỗi d
         //     Điền override để ÉP đúng tên khi công thức không khớp (chỉ hợp lệ khi 1 int).
         string(name: 'NAMESPACE', defaultValue: '', description: 'Override tên namespace (trống = {PROJECT}-{int}-{ENV}-ns)')
         string(name: 'DEPLOYMENT_NAME', defaultValue: '', description: 'Override tên deployment (trống = {PROJECT}-{int}-{ENV}-deployment)')
+        string(name: 'KUBE_CRED', defaultValue: '', description: '(Khuyến nghị) Jenkins credential (Secret file) kubeconfig. Trống = đọc KUBE_CONFIG từ Vault')
         // [OPTIONS - mới]
         booleanParam(name: 'RUN_TRIVY', defaultValue: true, description: 'Quét lỗ hổng image (imagebase)')
         booleanParam(name: 'TRIVY_BLOCK', defaultValue: false, description: 'CHẶN nếu có CVE HIGH/CRITICAL')
@@ -163,18 +166,30 @@ def runInitialization() {
 
 def runCheckoutSource() {
     runWithHandling("Checkout Source") {
-        vaultLogin()
         def dir = "${params.PROJECT_NAME}-${params.ENVIRONMENT}"
         def cleanUrl = params.GIT_REPO_URL.replace("https://", "")
-        // GIT_USER/GIT_TOKEN chỉ tồn tại trong shell — không qua Groovy, không in log.
-        sh """
-            set +x
-            GIT_USER="\$(vault kv get -field=GIT_USER -address=${params.VAULT_ADDR} ${params.VAULT_PATH})"
-            GIT_TOKEN="\$(vault kv get -field=GIT_TOKEN -address=${params.VAULT_ADDR} ${params.VAULT_PATH})"
-            rm -rf ${dir}
-            git clone -b ${params.GIT_BRANCH} "https://\${GIT_USER}:\${GIT_TOKEN}@${cleanUrl}" ${dir}
-            set -x
-        """
+        if (params.GIT_CRED?.trim()) {
+            // Ưu tiên Jenkins credential (an toàn hơn, không cần Git trong Vault).
+            withCredentials([usernamePassword(credentialsId: params.GIT_CRED, usernameVariable: 'GU', passwordVariable: 'GP')]) {
+                sh """
+                    set +x
+                    rm -rf ${dir}
+                    git clone -b ${params.GIT_BRANCH} "https://oauth2:\$GP@${cleanUrl}" ${dir}
+                    set -x
+                """
+            }
+        } else {
+            // Fallback: GIT_USER/GIT_TOKEN từ Vault (chỉ trong shell, không qua Groovy/log).
+            vaultLogin()
+            sh """
+                set +x
+                GIT_USER="\$(vault kv get -field=GIT_USER -address=${params.VAULT_ADDR} ${params.VAULT_PATH})"
+                GIT_TOKEN="\$(vault kv get -field=GIT_TOKEN -address=${params.VAULT_ADDR} ${params.VAULT_PATH})"
+                rm -rf ${dir}
+                git clone -b ${params.GIT_BRANCH} "https://\${GIT_USER}:\${GIT_TOKEN}@${cleanUrl}" ${dir}
+                set -x
+            """
+        }
         env.COMMIT_NAME    = sh(script: "cd ${dir} && git rev-parse --short HEAD", returnStdout: true).trim()
         env.COMMIT_MESSAGE = sh(script: "cd ${dir} && git log -1 --pretty=%B", returnStdout: true).trim()
         echo "Commit: ${env.COMMIT_NAME}"
@@ -256,8 +271,20 @@ def runPushImage() {
                 aws ecr get-login-password --region ${params.AWS_REGION} | docker login --username AWS --password-stdin ${params.REGISTRY_URL}
                 set -x
             """
+            sh "docker push ${env.GENERATED_IMAGE_PATH}"
+        } else if (params.VAULT_DOCKERCONFIG_KEY?.trim()) {
+            // Dùng dockerconfigjson từ Vault -> config riêng (không đụng ~/.docker chung).
+            sh """
+                set +x
+                mkdir -p .secure/dockercfg
+                vault kv get -field=${params.VAULT_DOCKERCONFIG_KEY} -address=${params.VAULT_ADDR} ${params.VAULT_PATH} > .secure/dockercfg/config.json
+                chmod 600 .secure/dockercfg/config.json
+                set -x
+                docker --config .secure/dockercfg push ${env.GENERATED_IMAGE_PATH}
+                rm -rf .secure/dockercfg
+            """
         } else {
-            // Secret chỉ trong biến shell + command substitution -> không lộ log.
+            // Fallback: DOCKER_USER/DOCKER_PASS (chỉ trong biến shell, không lộ log).
             sh """
                 set +x
                 DUSER="\$(vault kv get -field=DOCKER_USER -address=${params.VAULT_ADDR} ${params.VAULT_PATH})"
@@ -265,8 +292,8 @@ def runPushImage() {
                   | docker login ${params.REGISTRY_URL} -u "\$DUSER" --password-stdin
                 set -x
             """
+            sh "docker push ${env.GENERATED_IMAGE_PATH}"
         }
-        sh "docker push ${env.GENERATED_IMAGE_PATH}"
     }
 }
 
@@ -331,15 +358,21 @@ def runDeployToCluster() {
         if (!params.SELECTED_INTS?.trim()) { echo "SELECTED_INTS trống — bỏ qua."; return }
         def ints = new JsonSlurper().parseText(params.SELECTED_INTS)
 
-        vaultLogin()
-        // kubeconfig từ Vault -> file tạm quyền 600 trong .secure, dọn bởi cleanWs.
+        vaultLogin()   // cần cho ENV_FILES (đọc từ Vault)
         sh 'mkdir -p .secure && chmod 700 .secure'
-        sh """
-            set +x
-            vault kv get -field=KUBE_CONFIG -address=${params.VAULT_ADDR} ${params.VAULT_PATH} > .secure/kube-config
-            chmod 600 .secure/kube-config
-            set -x
-        """
+        // Nguồn kubeconfig: ưu tiên Jenkins credential (Secret file); fallback Vault.
+        if (params.KUBE_CRED?.trim()) {
+            withCredentials([file(credentialsId: params.KUBE_CRED, variable: 'KCFG')]) {
+                sh 'cp "$KCFG" .secure/kube-config && chmod 600 .secure/kube-config'
+            }
+        } else {
+            sh """
+                set +x
+                vault kv get -field=KUBE_CONFIG -address=${params.VAULT_ADDR} ${params.VAULT_PATH} > .secure/kube-config
+                chmod 600 .secure/kube-config
+                set -x
+            """
+        }
         def kube = ".secure/kube-config"
         def image = env.GENERATED_IMAGE_PATH ?: "${params.IMAGE_REPO}:${params.PROJECT_NAME}-${params.ENVIRONMENT}-${env.BUILD_ID}"
         def proj  = params.PROJECT_NAME.trim()
