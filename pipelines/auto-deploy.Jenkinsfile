@@ -136,7 +136,7 @@ def runInitialization() {
         echo "=== CONFIG ==="
         params.each { k, v ->
             if (k == 'VAULT_TOKEN') echo "  ${k} : ***** (ẩn)"
-            else if (k !in ['COMMIT_MESSAGE', 'COMMIT_NAME']) echo "  ${k} : ${v ?: '(trống)'}"
+            else if (!(k in ['COMMIT_MESSAGE', 'COMMIT_NAME'])) echo "  ${k} : ${v ?: '(trống)'}"
         }
     }
 }
