@@ -64,8 +64,9 @@ pipeline {
 env-file-secret-wallet-be-admin
 config-env-secret-wallet-be-admin''', description: 'Danh sách env file (mỗi dòng 1 file). Xem cú pháp trong pipeline.')
         // [DEPLOY]
-        string(name: 'CLIENT_SECRET_NAME', defaultValue: '', description: 'List Secret K8s (optional, legacy)')
-        string(name: 'CLIENT_LOCATION_VAULT', defaultValue: '', description: 'JSON list file lấy từ Vault (optional, legacy)')
+        // --- Legacy: đã thay bằng ENV_FILES. Bỏ comment nếu cần dùng lại. ---
+        // string(name: 'CLIENT_SECRET_NAME', defaultValue: '', description: 'List Secret K8s (legacy)')
+        // string(name: 'CLIENT_LOCATION_VAULT', defaultValue: '', description: 'JSON list file lấy từ Vault (legacy)')
         string(name: 'SELECTED_INTS', defaultValue: '', description: 'JSON list tên service/integration')
         // --- Đặt tên tài nguyên. Mặc định theo công thức {PROJECT}-{int}-{ENV}-{suffix}.
         //     Điền override để ÉP đúng tên khi công thức không khớp (chỉ hợp lệ khi 1 int).
@@ -93,8 +94,6 @@ config-env-secret-wallet-be-admin''', description: 'Danh sách env file (mỗi d
         stage('Push Image')          { when { expression { params.ACTION == 'imagebase' } }
                                        steps { script { runPushImage() } } }
 
-        stage('Get App Secrets')     { when { expression { params.VAULT_ADDR?.trim() && params.SELECTED_INTS?.trim() } }
-                                       steps { script { runGetAppSecrets() } } }
         stage('Deploy to Cluster')   { when { expression { params.SELECTED_INTS?.trim() } }
                                        steps { script { runDeployToCluster() } } }
     }
@@ -293,25 +292,6 @@ def runPushImage() {
                 set -x
             """
             sh "docker push ${env.GENERATED_IMAGE_PATH}"
-        }
-    }
-}
-
-// Lấy các file config-secret từ Vault về workspace (an toàn với tham số rỗng).
-def runGetAppSecrets() {
-    runWithHandling("Get App Secrets") {
-        if (!params.CLIENT_LOCATION_VAULT?.trim()) { echo "CLIENT_LOCATION_VAULT trống — bỏ qua."; return }
-        def files
-        try { files = new JsonSlurper().parseText(params.CLIENT_LOCATION_VAULT) }
-        catch (e) { echo "CLIENT_LOCATION_VAULT không phải JSON hợp lệ: ${e.message}"; return }
-        if (!(files instanceof List) || !files) { echo "Danh sách rỗng."; return }
-        vaultLogin()
-        files.each { f ->
-            sh """
-                set +x
-                vault kv get -field=${f} -address=${params.VAULT_ADDR} ${params.VAULT_PATH} > '${f}'
-                set -x
-            """
         }
     }
 }
